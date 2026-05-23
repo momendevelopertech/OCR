@@ -23,6 +23,7 @@ export function useCamera(): UseCameraReturn {
     setError(null);
     setIsLoading(true);
     try {
+      // Try rear camera first (ideal for ID scanning)
       let stream: MediaStream;
       try {
         stream = await navigator.mediaDevices.getUserMedia({
@@ -34,6 +35,7 @@ export function useCamera(): UseCameraReturn {
           audio: false,
         });
       } catch {
+        // Fallback: any available camera
         stream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: 'environment' },
           audio: false,
@@ -49,8 +51,9 @@ export function useCamera(): UseCameraReturn {
           try {
             await video.play();
             setIsStreaming(true);
-          } catch {
+          } catch (playErr) {
             setError('Could not start video playback.');
+            console.error(playErr);
           }
         };
       }

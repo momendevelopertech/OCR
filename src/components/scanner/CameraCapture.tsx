@@ -84,7 +84,7 @@ export default function CameraCapture({
           autoPlay
           playsInline
           muted
-          className="h-auto w-full max-h-[70vh] object-cover"
+          className="w-full h-full object-cover rounded-lg"
         />
       </div>
       <div className="flex justify-center gap-3">

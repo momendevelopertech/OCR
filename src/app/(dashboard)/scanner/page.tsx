@@ -74,7 +74,7 @@ export default function ScannerPage() {
         <CameraCapture
           videoRef={camera.videoRef}
           onCapture={handleCapture}
-          isStreamActive={!!camera.stream}
+          isStreaming={camera.isStreaming}
           isLoading={camera.isLoading}
           error={camera.error}
           onStartCamera={camera.startCamera}

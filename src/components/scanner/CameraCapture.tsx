@@ -1,13 +1,12 @@
 'use client';
 
-import { useRef, useEffect } from 'react';
 import { Camera, CameraOff, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 interface CameraCaptureProps {
   videoRef: React.RefObject<HTMLVideoElement | null>;
   onCapture: (blob: Blob) => void;
-  isStreamActive: boolean;
+  isStreaming: boolean;
   isLoading: boolean;
   error: string | null;
   onStartCamera: () => void;
@@ -18,23 +17,15 @@ interface CameraCaptureProps {
 export default function CameraCapture({
   videoRef,
   onCapture,
-  isStreamActive,
+  isStreaming,
   isLoading,
   error,
   onStartCamera,
   onStopCamera,
   hasCaptured,
 }: CameraCaptureProps) {
-  const localVideoRef = useRef<HTMLVideoElement | null>(null);
-
-  useEffect(() => {
-    if (videoRef.current && localVideoRef.current) {
-      videoRef.current = localVideoRef.current;
-    }
-  }, [videoRef]);
-
   const handleCapture = () => {
-    const video = localVideoRef.current;
+    const video = videoRef.current;
     if (!video) return;
 
     const canvas = document.createElement('canvas');
@@ -46,7 +37,7 @@ export default function CameraCapture({
     ctx.drawImage(video, 0, 0);
     canvas.toBlob((blob) => {
       if (blob) onCapture(blob);
-    }, 'image/jpeg', 0.9);
+    }, 'image/jpeg', 0.92);
   };
 
   if (error) {
@@ -61,7 +52,7 @@ export default function CameraCapture({
     );
   }
 
-  if (!isStreamActive) {
+  if (!isStreaming) {
     return (
       <div className="flex flex-col items-center gap-4 rounded-xl border-2 border-dashed border-neutral-300 bg-neutral-50 p-8 text-center dark:border-neutral-700 dark:bg-neutral-900/50">
         <Camera className="h-12 w-12 text-neutral-400" />
@@ -89,10 +80,11 @@ export default function CameraCapture({
     <div className="space-y-4">
       <div className="relative overflow-hidden rounded-xl bg-black">
         <video
-          ref={localVideoRef}
+          ref={videoRef}
           autoPlay
           playsInline
-          className="h-auto w-full max-h-[70vh] object-contain"
+          muted
+          className="h-auto w-full max-h-[70vh] object-cover"
         />
       </div>
       <div className="flex justify-center gap-3">

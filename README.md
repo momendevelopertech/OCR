@@ -1,36 +1,117 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# OCR Admission Ticket Scanner
+
+A mobile-first web application for scanning Egyptian National ID cards via camera, extracting IDs using client-side OCR, and retrieving matching PDF admission tickets.
+
+## Tech Stack
+
+- **Framework:** Next.js 16 (App Router)
+- **Language:** TypeScript
+- **Styling:** TailwindCSS v4 + shadcn/ui
+- **OCR:** Tesseract.js (client-side in Web Worker)
+- **PDF Preview:** pdfjs-dist (client-side)
+- **File Storage:** Vercel Blob
+- **Database:** Neon (PostgreSQL)
+- **Auth:** NextAuth.js v5 (credentials)
+- **Validation:** Zod + React Hook Form
+- **Notifications:** Sonner
 
 ## Getting Started
 
-First, run the development server:
+### 1. Install dependencies
+
+```bash
+npm install
+```
+
+### 2. Set up environment variables
+
+Copy `.env.local.example` to `.env.local` and fill in the values:
+
+```bash
+cp .env.local.example .env.local
+```
+
+### 3. Database setup
+
+1. Create a free project on [neon.tech](https://neon.tech)
+2. Copy the `DATABASE_URL` from Connection Details
+3. Run the schema in Neon console:
+
+```sql
+CREATE TABLE students (
+  id               SERIAL PRIMARY KEY,
+  national_id      VARCHAR(14) NOT NULL UNIQUE,
+  student_name     VARCHAR(255) NOT NULL,
+  faculty          VARCHAR(255),
+  academic_year    VARCHAR(50),
+  pdf_url          TEXT NOT NULL,
+  pdf_blob_key     TEXT NOT NULL,
+  uploaded_at      TIMESTAMP DEFAULT NOW(),
+  updated_at       TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE scan_history (
+  id               SERIAL PRIMARY KEY,
+  national_id      VARCHAR(14) NOT NULL,
+  method           VARCHAR(10) NOT NULL,
+  found            BOOLEAN NOT NULL,
+  ocr_confidence   FLOAT,
+  scanned_at       TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX idx_students_national_id ON students(national_id);
+CREATE INDEX idx_scan_history_scanned_at ON scan_history(scanned_at DESC);
+```
+
+### 4. Seed mock data (optional)
+
+```bash
+npx ts-node scripts/seed.ts
+```
+
+### 5. Run the app
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Demo credentials: `admin@example.com` / `admin123`
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Project Structure
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```
+src/
+├── app/
+│   ├── (auth)/login/         ← Login page
+│   ├── (dashboard)/          ← Protected pages
+│   │   ├── dashboard/        ← Stats + recent scans
+│   │   ├── scanner/          ← Camera + OCR flow
+│   │   └── manual-search/    ← Manual ID entry
+│   └── api/
+│       ├── auth/[...nextauth] ← NextAuth route handler
+│       └── tickets/          ← Search + upload + stats APIs
+├── components/
+│   ├── ui/                   ← shadcn-style components
+│   ├── scanner/              ← Camera, OCR, ID preview
+│   ├── ticket/               ← PDF preview, download, card
+│   └── shared/               ← Navbar, skeleton, error
+├── hooks/                    ← useCamera, useOcr, useTicketSearch
+├── lib/                      ← auth, db, blob, validations, ocr
+├── services/                 ← ticket search service
+└── types/                    ← TypeScript types
+```
 
-## Learn More
+## Deployment
 
-To learn more about Next.js, take a look at the following resources:
+Deploy to Vercel:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+1. Push to GitHub
+2. Import in Vercel dashboard
+3. Add environment variables (DATABASE_URL, BLOB_READ_WRITE_TOKEN, NEXTAUTH_SECRET, NEXTAUTH_URL)
+4. Deploy
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Egyptian National ID Format
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Exactly 14 digits
+- Starts with 2 (1900s) or 3 (2000s)
+- Century + YYMMDD + Governorate + Serial + Checksum

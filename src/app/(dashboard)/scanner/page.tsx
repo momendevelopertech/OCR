@@ -10,23 +10,32 @@ import OcrProcessor from '@/components/scanner/OcrProcessor';
 import IdPreview from '@/components/scanner/IdPreview';
 import TicketCard from '@/components/ticket/TicketCard';
 import ErrorMessage from '@/components/shared/ErrorMessage';
-import { useCamera } from '@/hooks/useCamera';
 import { useOcr } from '@/hooks/useOcr';
 import { useTicketSearch } from '@/hooks/useTicketSearch';
 
+function dataUrlToBlob(dataUrl: string): Blob {
+  const [header, base64] = dataUrl.split(',');
+  const mime = header.match(/:(.*?);/)![1];
+  const bytes = atob(base64);
+  const arr = new Uint8Array(bytes.length);
+  for (let i = 0; i < bytes.length; i++) {
+    arr[i] = bytes.charCodeAt(i);
+  }
+  return new Blob([arr], { type: mime });
+}
+
 export default function ScannerPage() {
-  const camera = useCamera();
   const ocr = useOcr();
   const ticketSearch = useTicketSearch();
-  const [capturedBlob, setCapturedBlob] = useState<Blob | null>(null);
+  const [capturedImageDataUrl, setCapturedImageDataUrl] = useState<string | null>(null);
   const [step, setStep] = useState<'camera' | 'preview' | 'result'>('camera');
 
   const handleCapture = useCallback(
-    async (blob: Blob) => {
-      setCapturedBlob(blob);
-      camera.stopCamera();
+    async (imageDataUrl: string) => {
+      setCapturedImageDataUrl(imageDataUrl);
       setStep('preview');
 
+      const blob = dataUrlToBlob(imageDataUrl);
       const id = await ocr.processImage(blob);
       if (id) {
         setStep('result');
@@ -36,7 +45,7 @@ export default function ScannerPage() {
         }
       }
     },
-    [camera, ocr, ticketSearch],
+    [ocr, ticketSearch],
   );
 
   const handleConfirmId = async (id: string) => {
@@ -50,7 +59,7 @@ export default function ScannerPage() {
   const handleReset = () => {
     ocr.reset();
     ticketSearch.reset();
-    setCapturedBlob(null);
+    setCapturedImageDataUrl(null);
     setStep('camera');
   };
 
@@ -71,24 +80,15 @@ export default function ScannerPage() {
       </div>
 
       {step === 'camera' && (
-        <CameraCapture
-          videoRef={camera.videoRef}
-          onCapture={handleCapture}
-          isStreaming={camera.isStreaming}
-          isLoading={camera.isLoading}
-          error={camera.error}
-          onStartCamera={camera.startCamera}
-          onStopCamera={camera.stopCamera}
-          hasCaptured={!!capturedBlob}
-        />
+        <CameraCapture onCapture={handleCapture} />
       )}
 
       {step === 'preview' && (
         <div className="space-y-4">
-          {capturedBlob && (
+          {capturedImageDataUrl && (
             <div className="overflow-hidden rounded-xl border border-neutral-200 dark:border-neutral-800">
               <img
-                src={URL.createObjectURL(capturedBlob)}
+                src={capturedImageDataUrl}
                 alt="Captured ID"
                 className="h-auto w-full"
               />

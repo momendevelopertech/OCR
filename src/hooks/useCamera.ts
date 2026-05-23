@@ -2,106 +2,104 @@
 
 import { useRef, useState, useCallback } from 'react';
 
+type CameraState = 'idle' | 'requesting' | 'streaming' | 'error';
+
 interface UseCameraReturn {
   videoRef: React.RefObject<HTMLVideoElement | null>;
-  isStreaming: boolean;
-  isLoading: boolean;
-  error: string | null;
+  state: CameraState;
+  errorMessage: string | null;
   startCamera: () => Promise<void>;
   stopCamera: () => void;
-  captureImage: () => Promise<Blob | null>;
+  captureImage: () => string | null;
 }
 
 export function useCamera(): UseCameraReturn {
-  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const [isStreaming, setIsStreaming] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [state, setState] = useState<CameraState>('idle');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const startCamera = useCallback(async () => {
-    setError(null);
-    setIsLoading(true);
-    try {
-      // Try rear camera first (ideal for ID scanning)
-      let stream: MediaStream;
+    setState('requesting');
+    setErrorMessage(null);
+
+    // Try multiple constraint configs in order — most compatible first
+    const constraintOptions: MediaStreamConstraints[] = [
+      { video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } } },
+      { video: { facingMode: 'environment' } },
+      { video: true },
+    ];
+
+    let stream: MediaStream | null = null;
+
+    for (const constraints of constraintOptions) {
       try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: { exact: 'environment' },
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-          },
-          audio: false,
-        });
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
+        break; // success — stop trying
       } catch {
-        // Fallback: any available camera
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'environment' },
-          audio: false,
-        });
+        // try next option
+        continue;
       }
+    }
 
-      streamRef.current = stream;
+    if (!stream) {
+      setErrorMessage('Could not access camera. Please check browser permissions and try again.');
+      setState('error');
+      return;
+    }
 
-      const video = videoRef.current;
-      if (video) {
-        video.srcObject = stream;
-        video.onloadedmetadata = async () => {
-          try {
-            await video.play();
-            setIsStreaming(true);
-          } catch (playErr) {
-            setError('Could not start video playback.');
-            console.error(playErr);
-          }
-        };
-      }
+    streamRef.current = stream;
+    const video = videoRef.current;
+
+    if (!video) {
+      setErrorMessage('Video element not found.');
+      setState('error');
+      stream.getTracks().forEach(t => t.stop());
+      return;
+    }
+
+    video.srcObject = stream;
+
+    try {
+      await new Promise<void>((resolve, reject) => {
+        video.onloadedmetadata = () => resolve();
+        video.onerror = () => reject(new Error('Video load error'));
+        setTimeout(() => reject(new Error('Video metadata timeout')), 8000);
+      });
+
+      await video.play();
+      setState('streaming');
     } catch (err) {
-      if (err instanceof DOMException) {
-        if (err.name === 'NotAllowedError') {
-          setError('Camera permission denied. Please allow camera access in your browser settings.');
-        } else if (err.name === 'NotFoundError') {
-          setError('No camera found on this device.');
-        } else if (err.name === 'NotReadableError') {
-          setError('Camera is already in use by another app.');
-        } else {
-          setError(`Camera error: ${err.message}`);
-        }
-      } else {
-        setError('Unexpected error starting camera.');
-      }
-      console.error('Camera error:', err);
-    } finally {
-      setIsLoading(false);
+      console.error('Video play error:', err);
+      setErrorMessage('Camera opened but could not display video. Try refreshing the page.');
+      setState('error');
+      stream.getTracks().forEach(t => t.stop());
     }
   }, []);
 
   const stopCamera = useCallback(() => {
-    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current?.getTracks().forEach(t => t.stop());
     streamRef.current = null;
-    const video = videoRef.current;
-    if (video) {
-      video.srcObject = null;
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
     }
-    setIsStreaming(false);
+    setState('idle');
+    setErrorMessage(null);
   }, []);
 
-  const captureImage = useCallback(async (): Promise<Blob | null> => {
+  const captureImage = useCallback((): string | null => {
     const video = videoRef.current;
-    if (!video || !isStreaming) return null;
+    if (!video || state !== 'streaming') return null;
 
     const canvas = document.createElement('canvas');
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
+    canvas.width = video.videoWidth || 1280;
+    canvas.height = video.videoHeight || 720;
     const ctx = canvas.getContext('2d');
     if (!ctx) return null;
 
     ctx.drawImage(video, 0, 0);
-    return new Promise<Blob | null>((resolve) => {
-      canvas.toBlob((blob) => resolve(blob), 'image/jpeg', 0.92);
-    });
-  }, [isStreaming]);
+    return canvas.toDataURL('image/jpeg', 0.92);
+  }, [state]);
 
-  return { videoRef, isStreaming, isLoading, error, startCamera, stopCamera, captureImage };
+  return { videoRef, state, errorMessage, startCamera, stopCamera, captureImage };
 }

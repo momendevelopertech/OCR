@@ -1,102 +1,100 @@
 'use client';
 
-import { Camera, CameraOff, Loader2 } from 'lucide-react';
+import { useCamera } from '@/hooks/useCamera';
 import { Button } from '@/components/ui/button';
+import { Camera, X, AlertCircle, Loader2 } from 'lucide-react';
 
 interface CameraCaptureProps {
-  videoRef: React.RefObject<HTMLVideoElement | null>;
-  onCapture: (blob: Blob) => void;
-  isStreaming: boolean;
-  isLoading: boolean;
-  error: string | null;
-  onStartCamera: () => void;
-  onStopCamera: () => void;
-  hasCaptured: boolean;
+  onCapture: (imageDataUrl: string) => void;
 }
 
-export default function CameraCapture({
-  videoRef,
-  onCapture,
-  isStreaming,
-  isLoading,
-  error,
-  onStartCamera,
-  onStopCamera,
-  hasCaptured,
-}: CameraCaptureProps) {
+export default function CameraCapture({ onCapture }: CameraCaptureProps) {
+  const { videoRef, state, errorMessage, startCamera, stopCamera, captureImage } = useCamera();
+
   const handleCapture = () => {
-    const video = videoRef.current;
-    if (!video) return;
-
-    const canvas = document.createElement('canvas');
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    ctx.drawImage(video, 0, 0);
-    canvas.toBlob((blob) => {
-      if (blob) onCapture(blob);
-    }, 'image/jpeg', 0.92);
+    const image = captureImage();
+    if (image) {
+      stopCamera();
+      onCapture(image);
+    }
   };
 
-  if (error) {
-    return (
-      <div className="flex flex-col items-center gap-4 rounded-xl border-2 border-dashed border-red-300 bg-red-50 p-8 text-center dark:border-red-800 dark:bg-red-950/50">
-        <CameraOff className="h-12 w-12 text-red-400" />
-        <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
-        <Button onClick={onStartCamera} variant="outline">
-          Try Again
-        </Button>
-      </div>
-    );
-  }
-
-  if (!isStreaming) {
-    return (
-      <div className="flex flex-col items-center gap-4 rounded-xl border-2 border-dashed border-neutral-300 bg-neutral-50 p-8 text-center dark:border-neutral-700 dark:bg-neutral-900/50">
-        <Camera className="h-12 w-12 text-neutral-400" />
-        <p className="text-sm text-neutral-600 dark:text-neutral-400">
-          Position the National ID within the frame and capture
-        </p>
-        <Button onClick={onStartCamera} disabled={isLoading}>
-          {isLoading ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Accessing Camera...
-            </>
-          ) : (
-            <>
-              <Camera className="mr-2 h-4 w-4" />
-              Open Camera
-            </>
-          )}
-        </Button>
-      </div>
-    );
-  }
-
   return (
-    <div className="space-y-4">
-      <div className="relative overflow-hidden rounded-xl bg-black">
+    <div className="flex flex-col gap-4 w-full">
+
+      {/* Video Preview */}
+      <div className="relative w-full aspect-video bg-black rounded-xl overflow-hidden border border-gray-700">
         <video
           ref={videoRef}
           autoPlay
           playsInline
           muted
-          className="w-full h-full object-cover rounded-lg"
+          className="w-full h-full object-cover"
         />
+
+        {/* Overlay when not streaming */}
+        {state !== 'streaming' && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/80">
+            {state === 'requesting' && (
+              <>
+                <Loader2 className="w-8 h-8 text-white animate-spin" />
+                <p className="text-white text-sm">Accessing camera...</p>
+              </>
+            )}
+            {state === 'idle' && (
+              <p className="text-gray-400 text-sm">Camera is off</p>
+            )}
+            {state === 'error' && (
+              <>
+                <AlertCircle className="w-8 h-8 text-red-400" />
+                <p className="text-red-400 text-sm text-center px-4">
+                  {errorMessage ?? 'Camera error'}
+                </p>
+              </>
+            )}
+          </div>
+        )}
       </div>
-      <div className="flex justify-center gap-3">
-        <Button onClick={handleCapture} disabled={hasCaptured}>
-          <Camera className="mr-2 h-4 w-4" />
-          {hasCaptured ? 'Captured' : 'Capture'}
-        </Button>
-        <Button onClick={onStopCamera} variant="outline">
-          <CameraOff className="mr-2 h-4 w-4" />
-          Close Camera
-        </Button>
+
+      {/* Action Buttons */}
+      <div className="flex gap-3 w-full">
+        {state === 'idle' || state === 'error' ? (
+          <Button onClick={startCamera} className="flex-1 gap-2">
+            <Camera className="w-4 h-4" />
+            Open Camera
+          </Button>
+        ) : state === 'requesting' ? (
+          <Button disabled className="flex-1 gap-2">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            Requesting access...
+          </Button>
+        ) : (
+          <>
+            <Button onClick={handleCapture} className="flex-1 gap-2">
+              <Camera className="w-4 h-4" />
+              Capture
+            </Button>
+            <Button variant="outline" onClick={stopCamera} className="gap-2">
+              <X className="w-4 h-4" />
+              Close
+            </Button>
+          </>
+        )}
       </div>
+
+      {/* Error Help Text */}
+      {state === 'error' && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700">
+          <p className="font-medium mb-1">Camera access failed</p>
+          <ul className="list-disc list-inside space-y-1 text-xs">
+            <li>Make sure you&apos;re on HTTPS (not HTTP)</li>
+            <li>Go to browser settings and allow camera for this site</li>
+            <li>Close other apps that might be using the camera</li>
+            <li>Try refreshing the page</li>
+          </ul>
+        </div>
+      )}
+
     </div>
   );
 }

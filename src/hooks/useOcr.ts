@@ -80,11 +80,15 @@ function preprocessImage(imageDataUrl: string): Promise<{ ocrImageDataUrl: strin
     const img = new Image();
 
     img.onload = () => {
-      const cropCandidates = [
-        { x: 0.35, y: 0.58, w: 0.62, h: 0.30 },
-        { x: 0.30, y: 0.55, w: 0.68, h: 0.33 },
-        { x: 0.25, y: 0.50, w: 0.72, h: 0.36 },
-      ];
+      const isLikelyAlreadyCroppedIdZone = img.width / Math.max(1, img.height) > 2.2;
+      const cropCandidates = isLikelyAlreadyCroppedIdZone
+        ? [{ x: 0, y: 0, w: 1, h: 1 }]
+        : [
+          { x: 0.35, y: 0.58, w: 0.62, h: 0.30 },
+          { x: 0.30, y: 0.55, w: 0.68, h: 0.33 },
+          { x: 0.25, y: 0.50, w: 0.72, h: 0.36 },
+          { x: 0.20, y: 0.45, w: 0.76, h: 0.40 },
+        ];
 
       const probeCanvas = document.createElement('canvas');
       const probeCtx = probeCanvas.getContext('2d');
@@ -124,7 +128,7 @@ function preprocessImage(imageDataUrl: string): Promise<{ ocrImageDataUrl: strin
       const cropW = Math.max(1, Math.floor(img.width * best.w));
       const cropH = Math.max(1, Math.floor(img.height * best.h));
 
-      const scale = 3;
+      const scale = isLikelyAlreadyCroppedIdZone ? 4 : 3;
       const previewCanvas = document.createElement('canvas');
       previewCanvas.width = cropW * scale;
       previewCanvas.height = cropH * scale;
@@ -158,13 +162,13 @@ function preprocessImage(imageDataUrl: string): Promise<{ ocrImageDataUrl: strin
       }
 
       const meanGray = sumGray / (data.length / 4);
-      const dynamicThreshold = Math.max(105, Math.min(180, meanGray - 12));
+      const dynamicThreshold = Math.max(115, Math.min(185, meanGray - 10));
       const contrastRange = Math.max(1, maxGray - minGray);
 
       for (let i = 0; i < data.length; i += 4) {
         const gray = Math.round(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
         const stretched = Math.round(((gray - minGray) * 255) / contrastRange);
-        const boosted = Math.min(255, Math.max(0, Math.round(stretched * 1.15)));
+        const boosted = Math.min(255, Math.max(0, Math.round(stretched * 1.25)));
         const binary = boosted < dynamicThreshold ? 0 : 255;
         data[i] = binary;
         data[i + 1] = binary;
@@ -187,6 +191,8 @@ function preprocessImage(imageDataUrl: string): Promise<{ ocrImageDataUrl: strin
 async function runOcrPass(image: string, lang: string, params: Record<string, string> = {}): Promise<{ text: string; confidence: number }> {
   const { data } = await Tesseract.recognize(image, lang, {
     logger: () => undefined,
+    tessedit_pageseg_mode: Tesseract.PSM.SINGLE_LINE,
+    preserve_interword_spaces: '0',
     ...params,
   });
 
@@ -199,14 +205,12 @@ async function multiPassOcr(
 ): Promise<{ nationalId: string | null; confidence: number; rawText: string; normalizedText: string }> {
   const passes: Array<{ lang: string; params?: Record<string, string>; label: string; imageKey: 'primary' | 'secondary' | 'tertiary' }> = [
     { lang: 'ara', params: { tessedit_char_whitelist: '٠١٢٣٤٥٦٧٨٩0123456789' }, label: 'Arabic digits whitelist (processed)', imageKey: 'primary' },
-    { lang: 'eng', params: { tessedit_char_whitelist: '0123456789' }, label: 'English digits only (processed)', imageKey: 'primary' },
+    { lang: 'ara', params: { tessedit_char_whitelist: '٠١٢٣٤٥٦٧٨٩', classify_bln_numeric_mode: '1' }, label: 'Arabic-indic digits only (processed)', imageKey: 'primary' },
+    { lang: 'eng', params: { tessedit_char_whitelist: '0123456789', classify_bln_numeric_mode: '1' }, label: 'English digits only (processed)', imageKey: 'primary' },
     { lang: 'ara', label: 'Arabic full (processed)', imageKey: 'primary' },
     { lang: 'ara', params: { tessedit_char_whitelist: '٠١٢٣٤٥٦٧٨٩0123456789' }, label: 'Arabic digits whitelist (raw crop)', imageKey: 'secondary' },
-    { lang: 'eng', params: { tessedit_char_whitelist: '0123456789' }, label: 'English digits only (raw crop)', imageKey: 'secondary' },
-    { lang: 'ara', label: 'Arabic full (raw crop)', imageKey: 'secondary' },
+    { lang: 'eng', params: { tessedit_char_whitelist: '0123456789', classify_bln_numeric_mode: '1' }, label: 'English digits only (raw crop)', imageKey: 'secondary' },
     { lang: 'ara', params: { tessedit_char_whitelist: '٠١٢٣٤٥٦٧٨٩0123456789' }, label: 'Arabic digits whitelist (full image)', imageKey: 'tertiary' },
-    { lang: 'eng', params: { tessedit_char_whitelist: '0123456789' }, label: 'English digits only (full image)', imageKey: 'tertiary' },
-    { lang: 'ara', label: 'Arabic full (full image)', imageKey: 'tertiary' },
   ];
 
   let bestId: string | null = null;

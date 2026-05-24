@@ -13,21 +13,11 @@ import ErrorMessage from '@/components/shared/ErrorMessage';
 import { useOcr } from '@/hooks/useOcr';
 import { useTicketSearch } from '@/hooks/useTicketSearch';
 
-function dataUrlToBlob(dataUrl: string): Blob {
-  const [header, base64] = dataUrl.split(',');
-  const mime = header.match(/:(.*?);/)![1];
-  const bytes = atob(base64);
-  const arr = new Uint8Array(bytes.length);
-  for (let i = 0; i < bytes.length; i++) {
-    arr[i] = bytes.charCodeAt(i);
-  }
-  return new Blob([arr], { type: mime });
-}
-
 export default function ScannerPage() {
   const ocr = useOcr();
   const ticketSearch = useTicketSearch();
   const [capturedImageDataUrl, setCapturedImageDataUrl] = useState<string | null>(null);
+  const [editableId, setEditableId] = useState('');
   const [step, setStep] = useState<'camera' | 'preview' | 'result'>('camera');
 
   const handleCapture = useCallback(
@@ -35,11 +25,12 @@ export default function ScannerPage() {
       setCapturedImageDataUrl(imageDataUrl);
       setStep('preview');
 
-      const blob = dataUrlToBlob(imageDataUrl);
-      const id = await ocr.processImage(blob);
-      if (id) {
+      const ocrResult = await ocr.processImage(imageDataUrl);
+      setEditableId(ocrResult?.nationalId ?? '');
+
+      if (ocrResult?.nationalId) {
         setStep('result');
-        await ticketSearch.search(id);
+        await ticketSearch.search(ocrResult.nationalId);
         if (ticketSearch.error) {
           toast.error(ticketSearch.error);
         }
@@ -60,6 +51,7 @@ export default function ScannerPage() {
     ocr.reset();
     ticketSearch.reset();
     setCapturedImageDataUrl(null);
+    setEditableId('');
     setStep('camera');
   };
 
@@ -100,10 +92,10 @@ export default function ScannerPage() {
             error={ocr.error}
           />
           <IdPreview
-            extractedId={ocr.extractedId}
-            confidence={ocr.confidence}
+            extractedId={editableId}
+            confidence={ocr.result?.confidence ?? 0}
             onConfirm={handleConfirmId}
-            onEdit={(id) => ocr.extractedId && id}
+            onEdit={setEditableId}
             isLoading={ticketSearch.isLoading}
           />
           <Button variant="outline" className="w-full" onClick={handleReset}>

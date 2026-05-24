@@ -100,14 +100,9 @@ function preprocessIdRegion(imageDataUrl: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => {
-      const cropX = img.width * 0.53;
-      const cropY = img.height * 0.70;
-      const cropW = img.width * 0.44;
-      const cropH = img.height * 0.23;
-
       const canvas = document.createElement('canvas');
-      canvas.width = Math.max(1, Math.floor(cropW * 2));
-      canvas.height = Math.max(1, Math.floor(cropH * 2));
+      canvas.width = Math.max(1, Math.floor(img.width * 2));
+      canvas.height = Math.max(1, Math.floor(img.height * 2));
 
       const ctx = canvas.getContext('2d');
       if (!ctx) {
@@ -116,8 +111,8 @@ function preprocessIdRegion(imageDataUrl: string): Promise<string> {
       }
 
       ctx.imageSmoothingEnabled = false;
-      ctx.filter = 'grayscale(1) contrast(1.8) brightness(1.15)';
-      ctx.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, canvas.width, canvas.height);
+      ctx.filter = 'grayscale(1) contrast(2.1) brightness(1.2)';
+      ctx.drawImage(img, 0, 0, img.width, img.height, 0, 0, canvas.width, canvas.height);
 
       resolve(canvas.toDataURL('image/jpeg', 1));
     };

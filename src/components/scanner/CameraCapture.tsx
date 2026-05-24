@@ -11,8 +11,15 @@ interface CameraCaptureProps {
 export default function CameraCapture({ onCapture }: CameraCaptureProps) {
   const { videoRef, state, errorMessage, startCamera, stopCamera, captureImage } = useCamera();
 
+  const idZoneCrop = {
+    x: 46.16,
+    y: 57,
+    width: 47.84,
+    height: 15.4,
+  };
+
   const handleCapture = () => {
-    const image = captureImage();
+    const image = captureImage(idZoneCrop);
     if (image) {
       stopCamera();
       onCapture(image);

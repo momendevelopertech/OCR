@@ -131,8 +131,6 @@ export function useOcr(): UseOcrReturn {
       const croppedImage = await preprocessIdRegion(imageDataUrl);
 
       const { data } = await Tesseract.recognize(croppedImage, 'ara+eng', {
-        tessedit_pageseg_mode: '7',
-        tessedit_char_whitelist: '0123456789٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹',
         logger: (m) => {
           if (m.status === 'recognizing text') {
             setProgress(Math.round(m.progress * 100));
@@ -145,10 +143,7 @@ export function useOcr(): UseOcrReturn {
       let rawText = data.text;
 
       if (!nationalId || !isValidEgyptianId(nationalId) || !hasValidGovernorateCode(nationalId)) {
-        const fallback = await Tesseract.recognize(imageDataUrl, 'ara+eng', {
-          tessedit_pageseg_mode: '6',
-          tessedit_char_whitelist: '0123456789٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹',
-        });
+        const fallback = await Tesseract.recognize(imageDataUrl, 'ara+eng');
         const fallbackId = extractEgyptianId(fallback.data.text);
 
         if (fallbackId && hasValidGovernorateCode(fallbackId)) {

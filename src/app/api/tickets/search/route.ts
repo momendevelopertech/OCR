@@ -37,6 +37,8 @@ export async function GET(request: NextRequest) {
         studentName: student.student_name,
         faculty: student.faculty,
         academicYear: student.academic_year,
+        seatNumber: student.seat_number,
+        examHall: student.exam_hall,
         pdfUrl: student.pdf_url,
       },
     });

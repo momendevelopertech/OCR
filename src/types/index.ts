@@ -23,6 +23,8 @@ export interface StudentRecord {
   student_name: string;
   faculty: string | null;
   academic_year: string | null;
+  seat_number: string | null;
+  exam_hall: string | null;
   pdf_url: string;
 }
 

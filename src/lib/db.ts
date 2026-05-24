@@ -14,7 +14,7 @@ export async function findStudentByNationalId(
 ): Promise<StudentRecord | null> {
   const sql = getSql();
   const rows = await sql`
-    SELECT national_id, student_name, faculty, academic_year, pdf_url
+    SELECT national_id, student_name, faculty, academic_year, seat_number, exam_hall, pdf_url
     FROM students
     WHERE national_id = ${nationalId}
     LIMIT 1

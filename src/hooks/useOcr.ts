@@ -87,7 +87,7 @@ function extractId(text: string): string | null {
   return match[0];
 }
 
-function preprocessImage(imageDataUrl: string): Promise<string> {
+function preprocessImage(imageDataUrl: string): Promise<{ ocrImageDataUrl: string; previewImageDataUrl: string }> {
   return new Promise((resolve, reject) => {
     const img = new Image();
 
@@ -98,6 +98,20 @@ function preprocessImage(imageDataUrl: string): Promise<string> {
       const cropH = Math.floor(img.height * 0.35);
 
       const scale = 3;
+      const previewCanvas = document.createElement('canvas');
+      previewCanvas.width = cropW * scale;
+      previewCanvas.height = cropH * scale;
+
+      const previewCtx = previewCanvas.getContext('2d');
+      if (!previewCtx) {
+        reject(new Error('Image preprocessing failed'));
+        return;
+      }
+
+      previewCtx.fillStyle = '#ffffff';
+      previewCtx.fillRect(0, 0, previewCanvas.width, previewCanvas.height);
+      previewCtx.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, previewCanvas.width, previewCanvas.height);
+
       const canvas = document.createElement('canvas');
       canvas.width = cropW * scale;
       canvas.height = cropH * scale;
@@ -108,27 +122,47 @@ function preprocessImage(imageDataUrl: string): Promise<string> {
         return;
       }
 
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, canvas.width, canvas.height);
+      ctx.drawImage(previewCanvas, 0, 0);
 
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
       const data = imageData.data;
 
+      let minGray = 255;
+      let maxGray = 0;
+      let sumGray = 0;
+
       for (let i = 0; i < data.length; i += 4) {
         const gray = Math.round(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
-        const contrast = 2.5;
-        const factor = (259 * (contrast * 255 + 255)) / (255 * (259 - contrast * 255));
-        const boosted = Math.min(255, Math.max(0, Math.round(factor * (gray - 128) + 128)));
-        const binary = boosted < 120 ? 0 : 255;
+        minGray = Math.min(minGray, gray);
+        maxGray = Math.max(maxGray, gray);
+        sumGray += gray;
+      }
 
-        data[i] = binary;
-        data[i + 1] = binary;
-        data[i + 2] = binary;
+      const meanGray = sumGray / (data.length / 4);
+      const dynamicThreshold = Math.max(95, Math.min(175, meanGray - 18));
+      const contrastRange = Math.max(1, maxGray - minGray);
+
+      for (let i = 0; i < data.length; i += 4) {
+        const gray = Math.round(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
+        const stretched = Math.round(((gray - minGray) * 255) / contrastRange);
+        const boosted = Math.min(255, Math.max(0, Math.round(stretched * 1.25)));
+
+        if (boosted < dynamicThreshold) {
+          data[i] = 0;
+          data[i + 1] = 0;
+          data[i + 2] = 0;
+        } else {
+          data[i] = 255;
+          data[i + 1] = 255;
+          data[i + 2] = 255;
+        }
       }
 
       ctx.putImageData(imageData, 0, 0);
-      resolve(canvas.toDataURL('image/png'));
+      resolve({
+        ocrImageDataUrl: canvas.toDataURL('image/png'),
+        previewImageDataUrl: previewCanvas.toDataURL('image/png'),
+      });
     };
 
     img.onerror = () => reject(new Error('Image preprocessing failed'));
@@ -150,13 +184,16 @@ async function runOcrPass(
 }
 
 async function multiPassOcr(
-  image: string,
+  images: { primary: string; secondary?: string },
   onProgress: (progress: number, label: string) => void,
 ): Promise<{ nationalId: string | null; confidence: number; rawText: string; normalizedText: string }> {
-  const passes: Array<{ lang: string; params?: Record<string, string>; label: string }> = [
-    { lang: 'ara', params: { tessedit_char_whitelist: '٠١٢٣٤٥٦٧٨٩0123456789' }, label: 'Arabic digits whitelist' },
-    { lang: 'eng', params: { tessedit_char_whitelist: '0123456789' }, label: 'English digits only' },
-    { lang: 'ara', label: 'Arabic full' },
+  const passes: Array<{ lang: string; params?: Record<string, string>; label: string; imageKey: 'primary' | 'secondary' }> = [
+    { lang: 'ara', params: { tessedit_char_whitelist: '٠١٢٣٤٥٦٧٨٩0123456789' }, label: 'Arabic digits whitelist (processed)', imageKey: 'primary' },
+    { lang: 'eng', params: { tessedit_char_whitelist: '0123456789' }, label: 'English digits only (processed)', imageKey: 'primary' },
+    { lang: 'ara', label: 'Arabic full (processed)', imageKey: 'primary' },
+    { lang: 'ara', params: { tessedit_char_whitelist: '٠١٢٣٤٥٦٧٨٩0123456789' }, label: 'Arabic digits whitelist (raw crop)', imageKey: 'secondary' },
+    { lang: 'eng', params: { tessedit_char_whitelist: '0123456789' }, label: 'English digits only (raw crop)', imageKey: 'secondary' },
+    { lang: 'ara', label: 'Arabic full (raw crop)', imageKey: 'secondary' },
   ];
 
   let bestId: string | null = null;
@@ -165,7 +202,11 @@ async function multiPassOcr(
 
   for (let i = 0; i < passes.length; i += 1) {
     const pass = passes[i];
-    onProgress(20 + i * 25, `OCR pass ${i + 1}/3: ${pass.label}...`);
+    const image = pass.imageKey === 'primary' ? images.primary : images.secondary;
+
+    if (!image) continue;
+
+    onProgress(20 + Math.round((i / Math.max(1, passes.length - 1)) * 60), `OCR pass ${i + 1}/${passes.length}: ${pass.label}...`);
 
     try {
       const { text, confidence } = await runOcrPass(image, pass.lang, pass.params);
@@ -212,17 +253,20 @@ export function useOcr(): UseOcrReturn {
 
     try {
       setProgressLabel('جارٍ قص وتحسين منطقة الرقم القومي...');
-      const processedImage = await preprocessImage(imageDataUrl);
+      const processedImages = await preprocessImage(imageDataUrl);
       setProgress(15);
 
-      const passResult = await multiPassOcr(processedImage, (nextProgress, label) => {
+      const passResult = await multiPassOcr({
+        primary: processedImages.ocrImageDataUrl,
+        secondary: processedImages.previewImageDataUrl,
+      }, (nextProgress, label) => {
         setProgress(nextProgress);
         setProgressLabel(label);
       });
 
       const ocrResult: OcrResult = {
         ...passResult,
-        croppedImageDataUrl: processedImage,
+        croppedImageDataUrl: processedImages.previewImageDataUrl,
       };
 
       if (!ocrResult.nationalId) {

@@ -43,6 +43,17 @@ function cleanDigits(text: string): string {
     .replace(/[^0-9]/g, '');
 }
 
+function cleanDigits(text: string): string {
+  return convertArabicDigits(text)
+    .replace(/[oO°©]/g, '0')
+    .replace(/[lI|!]/g, '1')
+    .replace(/[Zz]/g, '2')
+    .replace(/[Ss$]/g, '5')
+    .replace(/[Bb]/g, '8')
+    .replace(/[Gg]/g, '9')
+    .replace(/[^0-9]/g, '');
+}
+
 function isValidEgyptianId(id: string): boolean {
   if (!/^[23]\d{13}$/.test(id)) return false;
   const centuryPrefix = id[0] === '2' ? '19' : '20';
@@ -52,7 +63,12 @@ function isValidEgyptianId(id: string): boolean {
 
   if (month < 1 || month > 12 || day < 1 || day > 31) return false;
 
-  const date = new Date(`${centuryPrefix}${year.toString().padStart(2, '0')}-${month.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}T00:00:00Z`);
+  const date = new Date(
+    `${centuryPrefix}${year.toString().padStart(2, '0')}-${month
+      .toString()
+      .padStart(2, '0')}-${day.toString().padStart(2, '0')}T00:00:00Z`,
+  );
+
   if (Number.isNaN(date.getTime())) return false;
 
   return date.getUTCMonth() + 1 === month && date.getUTCDate() === day;

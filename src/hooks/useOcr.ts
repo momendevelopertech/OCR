@@ -7,6 +7,8 @@ interface OcrResult {
   nationalId: string | null;
   confidence: number;
   rawText: string;
+  normalizedText: string;
+  croppedImageDataUrl: string;
 }
 
 interface UseOcrReturn {
@@ -85,6 +87,15 @@ function extractEgyptianId(text: string): string | null {
   return validCandidate ?? candidates[0] ?? null;
 }
 
+function normalizeOcrText(text: string): string {
+  return normalizeDigits(text)
+    .replace(/[oO]/g, '0')
+    .replace(/[lI|]/g, '1')
+    .replace(/[^0-9]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function preprocessIdRegion(imageDataUrl: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -141,6 +152,7 @@ export function useOcr(): UseOcrReturn {
       let nationalId = extractEgyptianId(data.text);
       let confidence = Math.round(data.confidence);
       let rawText = data.text;
+      let normalizedText = normalizeOcrText(data.text);
 
       if (!nationalId || !isValidEgyptianId(nationalId) || !hasValidGovernorateCode(nationalId)) {
         const fallback = await Tesseract.recognize(imageDataUrl, 'ara+eng');
@@ -150,6 +162,7 @@ export function useOcr(): UseOcrReturn {
           nationalId = fallbackId;
           confidence = Math.round(fallback.data.confidence);
           rawText = fallback.data.text;
+          normalizedText = normalizeOcrText(fallback.data.text);
         }
       }
 
@@ -161,7 +174,13 @@ export function useOcr(): UseOcrReturn {
         setError('تعذر قراءة الرقم تلقائياً. اكتب الرقم يدوياً ثم ابحث.');
       }
 
-      const ocrResult: OcrResult = { nationalId, confidence, rawText };
+      const ocrResult: OcrResult = {
+        nationalId,
+        confidence,
+        rawText,
+        normalizedText,
+        croppedImageDataUrl: croppedImage,
+      };
       setResult(ocrResult);
       setProgress(100);
       return ocrResult;

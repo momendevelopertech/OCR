@@ -130,10 +130,20 @@ function preprocessIdRegion(imageDataUrl: string): Promise<string> {
       }
 
       ctx.imageSmoothingEnabled = false;
-      ctx.filter = 'grayscale(1) contrast(2.1) brightness(1.2)';
       ctx.drawImage(img, 0, 0, img.width, img.height, 0, 0, canvas.width, canvas.height);
 
-      resolve(canvas.toDataURL('image/jpeg', 1));
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const data = imageData.data;
+      for (let i = 0; i < data.length; i += 4) {
+        const avg = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+        const val = avg < 128 ? 0 : 255;
+        data[i] = val;
+        data[i + 1] = val;
+        data[i + 2] = val;
+      }
+      ctx.putImageData(imageData, 0, 0);
+
+      resolve(canvas.toDataURL('image/png'));
     };
     img.onerror = () => reject(new Error('Image load failed'));
     img.src = imageDataUrl;

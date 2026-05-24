@@ -90,7 +90,7 @@ export default function ScannerPage() {
               <ol className="list-decimal space-y-2 pl-5 text-blue-900">
                 <li>Captured image received from camera.</li>
                 <li>Cropped only the red-box region (bottom-right ID zone).</li>
-                <li>Ran OCR on cropped region (Arabic + English digits).</li>
+                <li>Ran OCR on cropped region using Arabic model (ara).</li>
                 <li>Normalized Arabic digits to English digits before search.</li>
                 <li>Extracted 14-digit National ID and prepared ticket search.</li>
               </ol>

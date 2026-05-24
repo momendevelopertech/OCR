@@ -10,7 +10,7 @@ interface UseCameraReturn {
   errorMessage: string | null;
   startCamera: () => Promise<void>;
   stopCamera: () => void;
-  captureImage: () => string | null;
+  captureImage: (cropPercent?: { x: number; y: number; width: number; height: number }) => string | null;
 }
 
 export function useCamera(): UseCameraReturn {
@@ -87,17 +87,61 @@ export function useCamera(): UseCameraReturn {
     setErrorMessage(null);
   }, []);
 
-  const captureImage = useCallback((): string | null => {
+  const captureImage = useCallback((cropPercent?: { x: number; y: number; width: number; height: number }): string | null => {
     const video = videoRef.current;
     if (!video || state !== 'streaming') return null;
 
+    const sourceWidth = video.videoWidth || 1280;
+    const sourceHeight = video.videoHeight || 720;
+
+    let sx = 0;
+    let sy = 0;
+    let sw = sourceWidth;
+    let sh = sourceHeight;
+
+    if (cropPercent) {
+      const container = video.getBoundingClientRect();
+      const containerAspect = container.width / container.height;
+      const sourceAspect = sourceWidth / sourceHeight;
+
+      let renderedWidth = container.width;
+      let renderedHeight = container.height;
+      let offsetX = 0;
+      let offsetY = 0;
+
+      if (sourceAspect > containerAspect) {
+        renderedHeight = container.height;
+        renderedWidth = renderedHeight * sourceAspect;
+        offsetX = (renderedWidth - container.width) / 2;
+      } else {
+        renderedWidth = container.width;
+        renderedHeight = renderedWidth / sourceAspect;
+        offsetY = (renderedHeight - container.height) / 2;
+      }
+
+      const pxX = (cropPercent.x / 100) * container.width;
+      const pxY = (cropPercent.y / 100) * container.height;
+      const pxW = (cropPercent.width / 100) * container.width;
+      const pxH = (cropPercent.height / 100) * container.height;
+
+      sx = ((pxX + offsetX) / renderedWidth) * sourceWidth;
+      sy = ((pxY + offsetY) / renderedHeight) * sourceHeight;
+      sw = (pxW / renderedWidth) * sourceWidth;
+      sh = (pxH / renderedHeight) * sourceHeight;
+
+      sx = Math.max(0, Math.min(sourceWidth - 1, sx));
+      sy = Math.max(0, Math.min(sourceHeight - 1, sy));
+      sw = Math.max(1, Math.min(sourceWidth - sx, sw));
+      sh = Math.max(1, Math.min(sourceHeight - sy, sh));
+    }
+
     const canvas = document.createElement('canvas');
-    canvas.width = video.videoWidth || 1280;
-    canvas.height = video.videoHeight || 720;
+    canvas.width = Math.floor(sw);
+    canvas.height = Math.floor(sh);
     const ctx = canvas.getContext('2d');
     if (!ctx) return null;
 
-    ctx.drawImage(video, 0, 0);
+    ctx.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
     return canvas.toDataURL('image/jpeg', 0.92);
   }, [state]);
 

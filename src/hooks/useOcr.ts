@@ -2,58 +2,99 @@
 
 import { useState, useCallback } from 'react';
 import Tesseract from 'tesseract.js';
-import { extractEgyptianId } from '@/lib/ocr';
+
+interface OcrResult {
+  nationalId: string | null;
+  confidence: number;
+  rawText: string;
+}
 
 interface UseOcrReturn {
-  progress: number;
-  extractedId: string | null;
-  confidence: number;
   isProcessing: boolean;
+  progress: number;
+  result: OcrResult | null;
   error: string | null;
-  processImage: (imageBlob: Blob) => Promise<string | null>;
+  processImage: (imageDataUrl: string) => Promise<OcrResult | null>;
   reset: () => void;
 }
 
+function cropIdRegion(imageDataUrl: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const cropX = img.width * 0.45;
+      const cropY = img.height * 0.72;
+      const cropW = img.width * 0.55;
+      const cropH = img.height * 0.28;
+
+      canvas.width = cropW;
+      canvas.height = cropH;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        resolve(imageDataUrl);
+        return;
+      }
+
+      ctx.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+      resolve(canvas.toDataURL('image/jpeg', 0.95));
+    };
+    img.onerror = () => reject(new Error('Image load failed'));
+    img.src = imageDataUrl;
+  });
+}
+
+function extractEgyptianId(text: string): string | null {
+  const cleaned = text
+    .replace(/\s/g, '')
+    .replace(/[oO]/g, '0')
+    .replace(/[lI]/g, '1')
+    .replace(/[^0-9]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const match = cleaned.replace(/\s/g, '').match(/[23]\d{13}/);
+  return match ? match[0] : null;
+}
+
 export function useOcr(): UseOcrReturn {
-  const [progress, setProgress] = useState(0);
-  const [extractedId, setExtractedId] = useState<string | null>(null);
-  const [confidence, setConfidence] = useState(0);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [result, setResult] = useState<OcrResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const processImage = useCallback(async (imageBlob: Blob): Promise<string | null> => {
+  const processImage = useCallback(async (imageDataUrl: string): Promise<OcrResult | null> => {
     setIsProcessing(true);
     setProgress(0);
     setError(null);
-    setExtractedId(null);
+    setResult(null);
 
     try {
-      const { data } = await Tesseract.recognize(imageBlob, 'ara+eng', {
+      const croppedImage = await cropIdRegion(imageDataUrl);
+
+      const { data } = await Tesseract.recognize(croppedImage, 'ara+eng', {
         logger: (m) => {
           if (m.status === 'recognizing text') {
-            setProgress(m.progress * 100);
+            setProgress(Math.round(m.progress * 100));
           }
         },
       });
 
-      const id = extractEgyptianId(data.text);
+      const nationalId = extractEgyptianId(data.text);
+      const confidence = Math.round(data.confidence);
 
-      if (!id) {
-        setError('Could not extract ID. Please try manual entry');
-        return null;
-      }
+      const ocrResult: OcrResult = {
+        nationalId,
+        confidence,
+        rawText: data.text,
+      };
 
-      const conf = data.confidence;
-      setConfidence(conf);
-      setExtractedId(id);
-
-      if (conf < 60) {
-        setError('Low confidence result — please verify the ID');
-      }
-
-      return id;
-    } catch {
-      setError('OCR processing failed. Please try manual entry');
+      setResult(ocrResult);
+      setProgress(100);
+      return ocrResult;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'OCR processing failed';
+      setError(msg);
       return null;
     } finally {
       setIsProcessing(false);
@@ -61,20 +102,11 @@ export function useOcr(): UseOcrReturn {
   }, []);
 
   const reset = useCallback(() => {
-    setProgress(0);
-    setExtractedId(null);
-    setConfidence(0);
-    setIsProcessing(false);
+    setResult(null);
     setError(null);
+    setProgress(0);
+    setIsProcessing(false);
   }, []);
 
-  return {
-    progress,
-    extractedId,
-    confidence,
-    isProcessing,
-    error,
-    processImage,
-    reset,
-  };
+  return { isProcessing, progress, result, error, processImage, reset };
 }

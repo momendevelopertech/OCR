@@ -71,20 +71,28 @@ function hasValidGovernorateCode(id: string): boolean {
 
 function extractId(text: string): string | null {
   const digits = normalizeOcrDigits(text);
-  const match = digits.match(/[23]\d{13}/);
-  return match ? match[0] : null;
+  const directMatch = digits.match(/[23]\d{13}/);
+  if (directMatch) return directMatch[0];
+
+  const reversedDigits = digits.split('').reverse().join('');
+  const reversedMatch = reversedDigits.match(/[23]\d{13}/);
+  return reversedMatch ? reversedMatch[0] : null;
 }
 
-function preprocessImage(imageDataUrl: string): Promise<{ ocrImageDataUrl: string; previewImageDataUrl: string; fallbackImageDataUrl: string }> {
+function preprocessImage(imageDataUrl: string): Promise<{ ocrImageDataUrl: string; enhancedImageDataUrl: string; previewImageDataUrl: string; fallbackImageDataUrl: string }> {
   return new Promise((resolve, reject) => {
     const img = new Image();
 
     img.onload = () => {
-      const cropCandidates = [
-        { x: 0.35, y: 0.58, w: 0.62, h: 0.30 },
-        { x: 0.30, y: 0.55, w: 0.68, h: 0.33 },
-        { x: 0.25, y: 0.50, w: 0.72, h: 0.36 },
-      ];
+      const isLikelyAlreadyCroppedIdZone = img.width / Math.max(1, img.height) > 2.2;
+      const cropCandidates = isLikelyAlreadyCroppedIdZone
+        ? [{ x: 0, y: 0, w: 1, h: 1 }]
+        : [
+          { x: 0.35, y: 0.58, w: 0.62, h: 0.30 },
+          { x: 0.30, y: 0.55, w: 0.68, h: 0.33 },
+          { x: 0.25, y: 0.50, w: 0.72, h: 0.36 },
+          { x: 0.20, y: 0.45, w: 0.76, h: 0.40 },
+        ];
 
       const probeCanvas = document.createElement('canvas');
       const probeCtx = probeCanvas.getContext('2d');
@@ -124,7 +132,7 @@ function preprocessImage(imageDataUrl: string): Promise<{ ocrImageDataUrl: strin
       const cropW = Math.max(1, Math.floor(img.width * best.w));
       const cropH = Math.max(1, Math.floor(img.height * best.h));
 
-      const scale = 3;
+      const scale = isLikelyAlreadyCroppedIdZone ? 4 : 3;
       const previewCanvas = document.createElement('canvas');
       previewCanvas.width = cropW * scale;
       previewCanvas.height = cropH * scale;
@@ -145,6 +153,8 @@ function preprocessImage(imageDataUrl: string): Promise<{ ocrImageDataUrl: strin
       ctx.drawImage(previewCanvas, 0, 0);
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
       const data = imageData.data;
+      const enhancedImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const enhancedData = enhancedImageData.data;
 
       let minGray = 255;
       let maxGray = 0;
@@ -158,22 +168,38 @@ function preprocessImage(imageDataUrl: string): Promise<{ ocrImageDataUrl: strin
       }
 
       const meanGray = sumGray / (data.length / 4);
-      const dynamicThreshold = Math.max(105, Math.min(180, meanGray - 12));
+      const dynamicThreshold = Math.max(98, Math.min(170, meanGray - 18));
       const contrastRange = Math.max(1, maxGray - minGray);
 
       for (let i = 0; i < data.length; i += 4) {
         const gray = Math.round(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
         const stretched = Math.round(((gray - minGray) * 255) / contrastRange);
-        const boosted = Math.min(255, Math.max(0, Math.round(stretched * 1.15)));
+        const boosted = Math.min(255, Math.max(0, Math.round(stretched * 1.12)));
         const binary = boosted < dynamicThreshold ? 0 : 255;
         data[i] = binary;
         data[i + 1] = binary;
         data[i + 2] = binary;
       }
 
+      for (let i = 0; i < enhancedData.length; i += 4) {
+        const gray = Math.round(0.299 * enhancedData[i] + 0.587 * enhancedData[i + 1] + 0.114 * enhancedData[i + 2]);
+        const stretched = Math.round(((gray - minGray) * 255) / contrastRange);
+        const boosted = Math.min(255, Math.max(0, Math.round(stretched * 1.2)));
+        enhancedData[i] = boosted;
+        enhancedData[i + 1] = boosted;
+        enhancedData[i + 2] = boosted;
+      }
+
       ctx.putImageData(imageData, 0, 0);
+      const enhancedCanvas = document.createElement('canvas');
+      enhancedCanvas.width = canvas.width;
+      enhancedCanvas.height = canvas.height;
+      const enhancedCtx = enhancedCanvas.getContext('2d');
+      if (!enhancedCtx) return reject(new Error('Image preprocessing failed'));
+      enhancedCtx.putImageData(enhancedImageData, 0, 0);
       resolve({
         ocrImageDataUrl: canvas.toDataURL('image/png'),
+        enhancedImageDataUrl: enhancedCanvas.toDataURL('image/png'),
         previewImageDataUrl: previewCanvas.toDataURL('image/png'),
         fallbackImageDataUrl: imageDataUrl,
       });
@@ -185,28 +211,33 @@ function preprocessImage(imageDataUrl: string): Promise<{ ocrImageDataUrl: strin
 }
 
 async function runOcrPass(image: string, lang: string, params: Record<string, string> = {}): Promise<{ text: string; confidence: number }> {
-  const { data } = await Tesseract.recognize(image, lang, {
+  const worker = await Tesseract.createWorker(lang, Tesseract.OEM.LSTM_ONLY, {
     logger: () => undefined,
+  });
+
+  await worker.setParameters({
+    tessedit_pageseg_mode: Tesseract.PSM.SINGLE_LINE,
+    preserve_interword_spaces: '0',
     ...params,
   });
+
+  const { data } = await worker.recognize(image);
+  await worker.terminate();
 
   return { text: data.text, confidence: data.confidence };
 }
 
 async function multiPassOcr(
-  images: { primary: string; secondary?: string; tertiary?: string },
+  images: { primary: string; enhanced?: string; secondary?: string; tertiary?: string },
   onProgress: (progress: number, label: string) => void,
 ): Promise<{ nationalId: string | null; confidence: number; rawText: string; normalizedText: string }> {
-  const passes: Array<{ lang: string; params?: Record<string, string>; label: string; imageKey: 'primary' | 'secondary' | 'tertiary' }> = [
-    { lang: 'ara', params: { tessedit_char_whitelist: '٠١٢٣٤٥٦٧٨٩0123456789' }, label: 'Arabic digits whitelist (processed)', imageKey: 'primary' },
-    { lang: 'eng', params: { tessedit_char_whitelist: '0123456789' }, label: 'English digits only (processed)', imageKey: 'primary' },
-    { lang: 'ara', label: 'Arabic full (processed)', imageKey: 'primary' },
+  const passes: Array<{ lang: string; params?: Record<string, string>; label: string; imageKey: 'primary' | 'enhanced' | 'secondary' | 'tertiary' }> = [
+    { lang: 'eng', params: { tessedit_char_whitelist: '0123456789', classify_bln_numeric_mode: '1' }, label: 'English digits only (binarized)', imageKey: 'primary' },
+    { lang: 'eng', params: { tessedit_char_whitelist: '0123456789', classify_bln_numeric_mode: '1', tessedit_pageseg_mode: Tesseract.PSM.SINGLE_WORD }, label: 'English digits single-word (binarized)', imageKey: 'primary' },
+    { lang: 'eng', params: { tessedit_char_whitelist: '0123456789', classify_bln_numeric_mode: '1' }, label: 'English digits only (enhanced grayscale)', imageKey: 'enhanced' },
+    { lang: 'ara', params: { tessedit_char_whitelist: '٠١٢٣٤٥٦٧٨٩', classify_bln_numeric_mode: '1' }, label: 'Arabic-indic digits only (binarized)', imageKey: 'primary' },
+    { lang: 'eng', params: { tessedit_char_whitelist: '0123456789', classify_bln_numeric_mode: '1' }, label: 'English digits only (raw crop)', imageKey: 'secondary' },
     { lang: 'ara', params: { tessedit_char_whitelist: '٠١٢٣٤٥٦٧٨٩0123456789' }, label: 'Arabic digits whitelist (raw crop)', imageKey: 'secondary' },
-    { lang: 'eng', params: { tessedit_char_whitelist: '0123456789' }, label: 'English digits only (raw crop)', imageKey: 'secondary' },
-    { lang: 'ara', label: 'Arabic full (raw crop)', imageKey: 'secondary' },
-    { lang: 'ara', params: { tessedit_char_whitelist: '٠١٢٣٤٥٦٧٨٩0123456789' }, label: 'Arabic digits whitelist (full image)', imageKey: 'tertiary' },
-    { lang: 'eng', params: { tessedit_char_whitelist: '0123456789' }, label: 'English digits only (full image)', imageKey: 'tertiary' },
-    { lang: 'ara', label: 'Arabic full (full image)', imageKey: 'tertiary' },
   ];
 
   let bestId: string | null = null;
@@ -215,7 +246,13 @@ async function multiPassOcr(
 
   for (let i = 0; i < passes.length; i += 1) {
     const pass = passes[i];
-    const image = pass.imageKey === 'primary' ? images.primary : pass.imageKey === 'secondary' ? images.secondary : images.tertiary;
+    const image = pass.imageKey === 'primary'
+      ? images.primary
+      : pass.imageKey === 'enhanced'
+        ? images.enhanced
+        : pass.imageKey === 'secondary'
+          ? images.secondary
+          : images.tertiary;
     if (!image) continue;
 
     onProgress(20 + Math.round((i / Math.max(1, passes.length - 1)) * 60), `OCR pass ${i + 1}/${passes.length}: ${pass.label}...`);
@@ -270,6 +307,7 @@ export function useOcr(): UseOcrReturn {
 
       const passResult = await multiPassOcr({
         primary: processedImages.ocrImageDataUrl,
+        enhanced: processedImages.enhancedImageDataUrl,
         secondary: processedImages.previewImageDataUrl,
         tertiary: processedImages.fallbackImageDataUrl,
       }, (nextProgress, label) => {

@@ -36,7 +36,7 @@ export default function IdPreview({
         <div className="flex items-center gap-2">
           <Input
             id="extracted-id"
-            defaultValue={extractedId}
+            value={extractedId}
             onChange={(e) => onEdit(e.target.value)}
             className="font-mono text-lg"
             maxLength={14}

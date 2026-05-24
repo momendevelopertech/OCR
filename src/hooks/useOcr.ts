@@ -18,43 +18,90 @@ interface UseOcrReturn {
   reset: () => void;
 }
 
-function cropIdRegion(imageDataUrl: string): Promise<string> {
+const ARABIC_INDIC_DIGITS = '٠١٢٣٤٥٦٧٨٩';
+const EASTERN_ARABIC_DIGITS = '۰۱۲۳۴۵۶۷۸۹';
+
+function normalizeDigits(input: string): string {
+  return input
+    .split('')
+    .map((char) => {
+      const arabicIndicIndex = ARABIC_INDIC_DIGITS.indexOf(char);
+      if (arabicIndicIndex >= 0) return String(arabicIndicIndex);
+
+      const easternArabicIndex = EASTERN_ARABIC_DIGITS.indexOf(char);
+      if (easternArabicIndex >= 0) return String(easternArabicIndex);
+
+      return char;
+    })
+    .join('');
+}
+
+function isValidEgyptianId(id: string): boolean {
+  if (!/^[23]\d{13}$/.test(id)) return false;
+
+  const centuryPrefix = id[0] === '2' ? '19' : '20';
+  const year = Number(id.slice(1, 3));
+  const month = Number(id.slice(3, 5));
+  const day = Number(id.slice(5, 7));
+
+  if (month < 1 || month > 12 || day < 1 || day > 31) return false;
+
+  const date = new Date(`${centuryPrefix}${year.toString().padStart(2, '0')}-${month.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) return false;
+
+  return date.getUTCMonth() + 1 === month && date.getUTCDate() === day;
+}
+
+function extractEgyptianId(text: string): string | null {
+  const normalized = normalizeDigits(text)
+    .replace(/[oO]/g, '0')
+    .replace(/[lI|]/g, '1')
+    .replace(/[^0-9]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const compact = normalized.replace(/\s/g, '');
+  const direct = compact.match(/[23]\d{13}/g) ?? [];
+  const windows: string[] = [];
+
+  for (let i = 0; i <= compact.length - 14; i++) {
+    const chunk = compact.slice(i, i + 14);
+    if (/^[23]\d{13}$/.test(chunk)) windows.push(chunk);
+  }
+
+  const candidates = [...new Set([...direct, ...windows])];
+  const validCandidate = candidates.find(isValidEgyptianId);
+  return validCandidate ?? candidates[0] ?? null;
+}
+
+function preprocessIdRegion(imageDataUrl: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => {
-      const canvas = document.createElement('canvas');
-      const cropX = img.width * 0.45;
-      const cropY = img.height * 0.72;
-      const cropW = img.width * 0.55;
-      const cropH = img.height * 0.28;
+      const cropX = img.width * 0.42;
+      const cropY = img.height * 0.68;
+      const cropW = img.width * 0.58;
+      const cropH = img.height * 0.30;
 
-      canvas.width = cropW;
-      canvas.height = cropH;
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.floor(cropW * 2));
+      canvas.height = Math.max(1, Math.floor(cropH * 2));
+
       const ctx = canvas.getContext('2d');
       if (!ctx) {
         resolve(imageDataUrl);
         return;
       }
 
-      ctx.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
-      resolve(canvas.toDataURL('image/jpeg', 0.95));
+      ctx.imageSmoothingEnabled = false;
+      ctx.filter = 'grayscale(1) contrast(1.8) brightness(1.15)';
+      ctx.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, canvas.width, canvas.height);
+
+      resolve(canvas.toDataURL('image/jpeg', 1));
     };
     img.onerror = () => reject(new Error('Image load failed'));
     img.src = imageDataUrl;
   });
-}
-
-function extractEgyptianId(text: string): string | null {
-  const cleaned = text
-    .replace(/\s/g, '')
-    .replace(/[oO]/g, '0')
-    .replace(/[lI]/g, '1')
-    .replace(/[^0-9]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-  const match = cleaned.replace(/\s/g, '').match(/[23]\d{13}/);
-  return match ? match[0] : null;
 }
 
 export function useOcr(): UseOcrReturn {
@@ -70,7 +117,7 @@ export function useOcr(): UseOcrReturn {
     setResult(null);
 
     try {
-      const croppedImage = await cropIdRegion(imageDataUrl);
+      const croppedImage = await preprocessIdRegion(imageDataUrl);
 
       const { data } = await Tesseract.recognize(croppedImage, 'ara+eng', {
         logger: (m) => {
@@ -84,22 +131,22 @@ export function useOcr(): UseOcrReturn {
       let confidence = Math.round(data.confidence);
       let rawText = data.text;
 
-      // Fallback: if crop missed the number, retry on full image.
-      if (!nationalId) {
+      if (!nationalId || !isValidEgyptianId(nationalId)) {
         const fallback = await Tesseract.recognize(imageDataUrl, 'ara+eng');
-        nationalId = extractEgyptianId(fallback.data.text);
-        if (nationalId) {
+        const fallbackId = extractEgyptianId(fallback.data.text);
+
+        if (fallbackId) {
+          nationalId = fallbackId;
           confidence = Math.round(fallback.data.confidence);
           rawText = fallback.data.text;
         }
       }
 
-      const ocrResult: OcrResult = {
-        nationalId,
-        confidence,
-        rawText,
-      };
+      if (!nationalId) {
+        setError('تعذر قراءة الرقم تلقائياً. اكتب الرقم يدوياً ثم ابحث.');
+      }
 
+      const ocrResult: OcrResult = { nationalId, confidence, rawText };
       setResult(ocrResult);
       setProgress(100);
       return ocrResult;

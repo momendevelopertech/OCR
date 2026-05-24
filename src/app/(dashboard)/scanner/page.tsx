@@ -17,6 +17,7 @@ export default function ScannerPage() {
   const ocr = useOcr();
   const ticketSearch = useTicketSearch();
   const [capturedImageDataUrl, setCapturedImageDataUrl] = useState<string | null>(null);
+  const [editableId, setEditableId] = useState('');
   const [step, setStep] = useState<'camera' | 'preview' | 'result'>('camera');
 
   const handleCapture = useCallback(
@@ -25,6 +26,8 @@ export default function ScannerPage() {
       setStep('preview');
 
       const ocrResult = await ocr.processImage(imageDataUrl);
+      setEditableId(ocrResult?.nationalId ?? '');
+
       if (ocrResult?.nationalId) {
         setStep('result');
         await ticketSearch.search(ocrResult.nationalId);
@@ -48,6 +51,7 @@ export default function ScannerPage() {
     ocr.reset();
     ticketSearch.reset();
     setCapturedImageDataUrl(null);
+    setEditableId('');
     setStep('camera');
   };
 
@@ -88,10 +92,10 @@ export default function ScannerPage() {
             error={ocr.error}
           />
           <IdPreview
-            extractedId={ocr.result?.nationalId ?? null}
+            extractedId={editableId}
             confidence={ocr.result?.confidence ?? 0}
             onConfirm={handleConfirmId}
-            onEdit={(id) => ocr.result?.nationalId && id}
+            onEdit={setEditableId}
             isLoading={ticketSearch.isLoading}
           />
           <Button variant="outline" className="w-full" onClick={handleReset}>

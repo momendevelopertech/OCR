@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
 interface IdPreviewProps {
-  extractedId: string | null;
+  extractedId: string;
   confidence: number;
   onConfirm: (id: string) => void;
   onEdit: (id: string) => void;
@@ -20,7 +20,7 @@ export default function IdPreview({
   onEdit,
   isLoading,
 }: IdPreviewProps) {
-  if (!extractedId) return null;
+  const isValidId = /^[23]\d{13}$/.test(extractedId);
 
   const confidenceColor =
     confidence >= 80
@@ -45,7 +45,12 @@ export default function IdPreview({
             {Math.round(confidence)}%
           </Badge>
         </div>
-        {confidence < 60 && (
+        {!isValidId && (
+          <p className="text-xs text-amber-600 dark:text-amber-400">
+            Please enter a valid 14-digit Egyptian national ID (starts with 2 or 3)
+          </p>
+        )}
+        {isValidId && confidence < 60 && (
           <p className="text-xs text-amber-600 dark:text-amber-400">
             Low confidence — please verify the ID before searching
           </p>
@@ -54,7 +59,7 @@ export default function IdPreview({
       <Button
         onClick={() => onConfirm(extractedId)}
         className="w-full"
-        disabled={isLoading}
+        disabled={isLoading || !isValidId}
       >
         {isLoading ? 'Searching...' : 'Search Ticket'}
       </Button>

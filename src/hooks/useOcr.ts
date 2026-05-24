@@ -80,13 +80,24 @@ export function useOcr(): UseOcrReturn {
         },
       });
 
-      const nationalId = extractEgyptianId(data.text);
-      const confidence = Math.round(data.confidence);
+      let nationalId = extractEgyptianId(data.text);
+      let confidence = Math.round(data.confidence);
+      let rawText = data.text;
+
+      // Fallback: if crop missed the number, retry on full image.
+      if (!nationalId) {
+        const fallback = await Tesseract.recognize(imageDataUrl, 'ara+eng');
+        nationalId = extractEgyptianId(fallback.data.text);
+        if (nationalId) {
+          confidence = Math.round(fallback.data.confidence);
+          rawText = fallback.data.text;
+        }
+      }
 
       const ocrResult: OcrResult = {
         nationalId,
         confidence,
-        rawText: data.text,
+        rawText,
       };
 
       setResult(ocrResult);

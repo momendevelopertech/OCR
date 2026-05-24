@@ -189,12 +189,18 @@ function preprocessImage(imageDataUrl: string): Promise<{ ocrImageDataUrl: strin
 }
 
 async function runOcrPass(image: string, lang: string, params: Record<string, string> = {}): Promise<{ text: string; confidence: number }> {
-  const { data } = await Tesseract.recognize(image, lang, {
+  const worker = await Tesseract.createWorker(lang, Tesseract.OEM.LSTM_ONLY, {
     logger: () => undefined,
+  });
+
+  await worker.setParameters({
     tessedit_pageseg_mode: Tesseract.PSM.SINGLE_LINE,
     preserve_interword_spaces: '0',
     ...params,
   });
+
+  const { data } = await worker.recognize(image);
+  await worker.terminate();
 
   return { text: data.text, confidence: data.confidence };
 }

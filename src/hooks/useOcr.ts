@@ -71,8 +71,12 @@ function hasValidGovernorateCode(id: string): boolean {
 
 function extractId(text: string): string | null {
   const digits = normalizeOcrDigits(text);
-  const match = digits.match(/[23]\d{13}/);
-  return match ? match[0] : null;
+  const directMatch = digits.match(/[23]\d{13}/);
+  if (directMatch) return directMatch[0];
+
+  const reversedDigits = digits.split('').reverse().join('');
+  const reversedMatch = reversedDigits.match(/[23]\d{13}/);
+  return reversedMatch ? reversedMatch[0] : null;
 }
 
 function preprocessImage(imageDataUrl: string): Promise<{ ocrImageDataUrl: string; previewImageDataUrl: string; fallbackImageDataUrl: string }> {
@@ -210,12 +214,12 @@ async function multiPassOcr(
   onProgress: (progress: number, label: string) => void,
 ): Promise<{ nationalId: string | null; confidence: number; rawText: string; normalizedText: string }> {
   const passes: Array<{ lang: string; params?: Record<string, string>; label: string; imageKey: 'primary' | 'secondary' | 'tertiary' }> = [
-    { lang: 'ara', params: { tessedit_char_whitelist: '٠١٢٣٤٥٦٧٨٩0123456789' }, label: 'Arabic digits whitelist (processed)', imageKey: 'primary' },
-    { lang: 'ara', params: { tessedit_char_whitelist: '٠١٢٣٤٥٦٧٨٩', classify_bln_numeric_mode: '1' }, label: 'Arabic-indic digits only (processed)', imageKey: 'primary' },
     { lang: 'eng', params: { tessedit_char_whitelist: '0123456789', classify_bln_numeric_mode: '1' }, label: 'English digits only (processed)', imageKey: 'primary' },
+    { lang: 'ara', params: { tessedit_char_whitelist: '٠١٢٣٤٥٦٧٨٩', classify_bln_numeric_mode: '1' }, label: 'Arabic-indic digits only (processed)', imageKey: 'primary' },
+    { lang: 'ara', params: { tessedit_char_whitelist: '٠١٢٣٤٥٦٧٨٩0123456789' }, label: 'Arabic digits whitelist (processed)', imageKey: 'primary' },
     { lang: 'ara', label: 'Arabic full (processed)', imageKey: 'primary' },
-    { lang: 'ara', params: { tessedit_char_whitelist: '٠١٢٣٤٥٦٧٨٩0123456789' }, label: 'Arabic digits whitelist (raw crop)', imageKey: 'secondary' },
     { lang: 'eng', params: { tessedit_char_whitelist: '0123456789', classify_bln_numeric_mode: '1' }, label: 'English digits only (raw crop)', imageKey: 'secondary' },
+    { lang: 'ara', params: { tessedit_char_whitelist: '٠١٢٣٤٥٦٧٨٩', classify_bln_numeric_mode: '1' }, label: 'Arabic-indic digits only (raw crop)', imageKey: 'secondary' },
     { lang: 'ara', params: { tessedit_char_whitelist: '٠١٢٣٤٥٦٧٨٩0123456789' }, label: 'Arabic digits whitelist (full image)', imageKey: 'tertiary' },
   ];
 

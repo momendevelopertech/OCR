@@ -32,18 +32,7 @@ function convertArabicDigits(text: string): string {
   return text.split('').map((char) => ARABIC_INDIC_MAP[char] ?? char).join('');
 }
 
-function cleanDigits(text: string): string {
-  return convertArabicDigits(text)
-    .replace(/[oO°©]/g, '0')
-    .replace(/[lI|!]/g, '1')
-    .replace(/[Zz]/g, '2')
-    .replace(/[Ss$]/g, '5')
-    .replace(/[Bb]/g, '8')
-    .replace(/[Gg]/g, '9')
-    .replace(/[^0-9]/g, '');
-}
-
-function cleanDigits(text: string): string {
+function normalizeOcrDigits(text: string): string {
   return convertArabicDigits(text)
     .replace(/[oO°©]/g, '0')
     .replace(/[lI|!]/g, '1')
@@ -81,7 +70,7 @@ function hasValidGovernorateCode(id: string): boolean {
 }
 
 function extractId(text: string): string | null {
-  const digits = cleanDigits(text);
+  const digits = normalizeOcrDigits(text);
   const match = digits.match(/[23]\d{13}/);
   return match ? match[0] : null;
 }

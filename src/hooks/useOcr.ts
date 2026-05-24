@@ -153,10 +153,10 @@ async function multiPassOcr(
   image: string,
   onProgress: (progress: number, label: string) => void,
 ): Promise<{ nationalId: string | null; confidence: number; rawText: string; normalizedText: string }> {
-  const passes = [
+  const passes: Array<{ lang: string; params?: Record<string, string>; label: string }> = [
     { lang: 'ara', params: { tessedit_char_whitelist: '٠١٢٣٤٥٦٧٨٩0123456789' }, label: 'Arabic digits whitelist' },
     { lang: 'eng', params: { tessedit_char_whitelist: '0123456789' }, label: 'English digits only' },
-    { lang: 'ara', params: {}, label: 'Arabic full' },
+    { lang: 'ara', label: 'Arabic full' },
   ];
 
   let bestId: string | null = null;

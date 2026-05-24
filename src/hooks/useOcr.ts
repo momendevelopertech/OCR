@@ -91,9 +91,28 @@ function normalizeOcrText(text: string): string {
   return normalizeDigits(text)
     .replace(/[oO]/g, '0')
     .replace(/[lI|]/g, '1')
+    .replace(/[Zz]/g, '2')
+    .replace(/[Ss]/g, '5')
+    .replace(/[Bb]/g, '8')
+    .replace(/[Gg]/g, '9')
     .replace(/[^0-9]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function extractFromNormalizedDigits(normalized: string): string | null {
+  const digitsOnly = normalized.replace(/[^0-9]/g, ' ').trim();
+  const sequences = digitsOnly.split(/\s+/).filter(Boolean);
+
+  for (const seq of sequences) {
+    if (/^[23]\d{13}$/.test(seq)) {
+      return seq;
+    }
+  }
+
+  const allDigits = digitsOnly.replace(/\s/g, '');
+  const match = allDigits.match(/[23]\d{13}/);
+  return match ? match[0] : null;
 }
 
 function preprocessIdRegion(imageDataUrl: string): Promise<string> {
@@ -136,7 +155,7 @@ export function useOcr(): UseOcrReturn {
     try {
       const croppedImage = await preprocessIdRegion(imageDataUrl);
 
-      const { data } = await Tesseract.recognize(croppedImage, 'ara+eng', {
+      const { data } = await Tesseract.recognize(croppedImage, 'ara', {
         logger: (m) => {
           if (m.status === 'recognizing text') {
             setProgress(Math.round(m.progress * 100));
@@ -144,20 +163,21 @@ export function useOcr(): UseOcrReturn {
         },
       });
 
-      let nationalId = extractEgyptianId(data.text);
+      let normalizedText = normalizeOcrText(data.text);
+      let nationalId = extractFromNormalizedDigits(normalizedText) ?? extractEgyptianId(data.text);
       let confidence = Math.round(data.confidence);
       let rawText = data.text;
-      let normalizedText = normalizeOcrText(data.text);
 
       if (!nationalId || !isValidEgyptianId(nationalId) || !hasValidGovernorateCode(nationalId)) {
-        const fallback = await Tesseract.recognize(imageDataUrl, 'ara+eng');
-        const fallbackId = extractEgyptianId(fallback.data.text);
+        const fallback = await Tesseract.recognize(imageDataUrl, 'ara');
+        const fallbackNormalized = normalizeOcrText(fallback.data.text);
+        const fallbackId = extractFromNormalizedDigits(fallbackNormalized) ?? extractEgyptianId(fallback.data.text);
 
         if (fallbackId && hasValidGovernorateCode(fallbackId)) {
           nationalId = fallbackId;
           confidence = Math.round(fallback.data.confidence);
           rawText = fallback.data.text;
-          normalizedText = normalizeOcrText(fallback.data.text);
+          normalizedText = fallbackNormalized;
         }
       }
 

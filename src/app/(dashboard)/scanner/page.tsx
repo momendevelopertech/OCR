@@ -13,21 +13,11 @@ import ErrorMessage from '@/components/shared/ErrorMessage';
 import { useOcr } from '@/hooks/useOcr';
 import { useTicketSearch } from '@/hooks/useTicketSearch';
 
-function dataUrlToBlob(dataUrl: string): Blob {
-  const [header, base64] = dataUrl.split(',');
-  const mime = header.match(/:(.*?);/)![1];
-  const bytes = atob(base64);
-  const arr = new Uint8Array(bytes.length);
-  for (let i = 0; i < bytes.length; i++) {
-    arr[i] = bytes.charCodeAt(i);
-  }
-  return new Blob([arr], { type: mime });
-}
-
 export default function ScannerPage() {
   const ocr = useOcr();
   const ticketSearch = useTicketSearch();
   const [capturedImageDataUrl, setCapturedImageDataUrl] = useState<string | null>(null);
+  const [editableId, setEditableId] = useState('');
   const [step, setStep] = useState<'camera' | 'preview' | 'result'>('camera');
 
   const handleCapture = useCallback(
@@ -35,17 +25,10 @@ export default function ScannerPage() {
       setCapturedImageDataUrl(imageDataUrl);
       setStep('preview');
 
-      const blob = dataUrlToBlob(imageDataUrl);
-      const id = await ocr.processImage(blob);
-      if (id) {
-        setStep('result');
-        await ticketSearch.search(id);
-        if (ticketSearch.error) {
-          toast.error(ticketSearch.error);
-        }
-      }
+      const ocrResult = await ocr.processImage(imageDataUrl);
+      setEditableId(ocrResult?.nationalId ?? '');
     },
-    [ocr, ticketSearch],
+    [ocr],
   );
 
   const handleConfirmId = async (id: string) => {
@@ -60,6 +43,7 @@ export default function ScannerPage() {
     ocr.reset();
     ticketSearch.reset();
     setCapturedImageDataUrl(null);
+    setEditableId('');
     setStep('camera');
   };
 
@@ -99,11 +83,40 @@ export default function ScannerPage() {
             isProcessing={ocr.isProcessing}
             error={ocr.error}
           />
+
+          {ocr.result && (
+            <div className="space-y-3 rounded-xl border border-blue-200 bg-blue-50/50 p-4 text-sm">
+              <p className="font-semibold text-blue-900">OCR Steps</p>
+              <ol className="list-decimal space-y-2 pl-5 text-blue-900">
+                <li>Captured image received from camera.</li>
+                <li>Cropped only the red-box region (bottom-right ID zone).</li>
+                <li>Ran OCR on cropped region (Arabic + English digits).</li>
+                <li>Normalized Arabic digits to English digits before search.</li>
+                <li>Extracted 14-digit National ID and prepared ticket search.</li>
+              </ol>
+              <div className="grid gap-3 md:grid-cols-2">
+                <div>
+                  <p className="mb-1 font-medium">Cropped OCR Region</p>
+                  <img
+                    src={ocr.result.croppedImageDataUrl}
+                    alt="Cropped OCR region"
+                    className="w-full rounded border border-blue-200"
+                  />
+                </div>
+                <div className="space-y-1 rounded border border-blue-200 bg-white p-3 font-mono text-xs">
+                  <p><span className="font-semibold">Raw OCR:</span> {ocr.result.rawText || '-'}</p>
+                  <p><span className="font-semibold">Normalized Digits:</span> {ocr.result.normalizedText || '-'}</p>
+                  <p><span className="font-semibold">Extracted ID:</span> {ocr.result.nationalId || '-'}</p>
+                </div>
+              </div>
+            </div>
+          )}
+
           <IdPreview
-            extractedId={ocr.extractedId}
-            confidence={ocr.confidence}
+            extractedId={editableId}
+            confidence={ocr.result?.confidence ?? 0}
             onConfirm={handleConfirmId}
-            onEdit={(id) => ocr.extractedId && id}
+            onEdit={setEditableId}
             isLoading={ticketSearch.isLoading}
           />
           <Button variant="outline" className="w-full" onClick={handleReset}>
